@@ -935,8 +935,8 @@ def guard_ring(
         "cont_min_enclose_metal": tech.TECH.cont_enc_metal,
         # TODO: add in the original tech struct
         "active_min_enclose_np": 0.14,
-        "active_min_enclose_pp": 0.14,
-        "np_min_enclose_nw": 0.14,
+        "active_min_enclose_pp": 0.03,
+        "nwell_min_enclose_ntap": 0.24,
     }
 
     min_width = gr_drc["cont_min_size"] + 2 * max(
@@ -999,6 +999,20 @@ def guard_ring(
         ]
 
     assert path is not None, "Neither path or bbox was provided."
+
+    def extend_path_ends(points, enclosure):
+        new_path = points.copy()
+
+        first_edge = np.array(points[1]) - np.array(points[0])
+        first_dir = first_edge / np.linalg.norm(first_edge)
+        new_path[0] = tuple(np.array(points[0]) - enclosure * first_dir)
+
+        last_edge = np.array(points[-1]) - np.array(points[-2])
+        last_dir = last_edge / np.linalg.norm(last_edge)
+        new_path[-1] = tuple(np.array(points[-1]) + enclosure * last_dir)
+
+        return new_path
+
     # place taps around path
     tap_layers = [layer_activ, layer_metal1]
     main = None
@@ -1007,44 +1021,20 @@ def guard_ring(
         main = c.add_ref(p)
     if guardRingType == "psub":
         sep = gr_drc["active_min_enclose_pp"]
-        last_point = list(path[-1])
-        last_edge = (path[-1][0] - path[-2][0], path[-1][1] - path[-2][1])
-        norm = np.linalg.norm(last_edge)
-        dir_vec = np.array(last_edge) / norm
-        # manhattan
-        dir_vec[0] = round(dir_vec[0])
-        dir_vec[1] = round(dir_vec[1])
-        last_point[0] += sep * dir_vec[0]
-        last_point[1] += sep * dir_vec[1]
-        new_path = path.copy()
-        new_path[-1] = tuple(last_point)
+        new_path = extend_path_ends(path, sep)
         p = gf.path.extrude(
             gf.path.Path(new_path), width=width + 2 * sep, layer=layer_psd
         )
         c.add_ref(p)
     if guardRingType == "nwell":
         sep = gr_drc["active_min_enclose_np"]
-        last_point = list(path[-1])
-        last_edge = (path[-1][0] - path[-2][0], path[-1][1] - path[-2][1])
-        norm = np.linalg.norm(last_edge)
-        dir_vec = np.array(last_edge) / norm
-        # manhattan
-        dir_vec[0] = round(dir_vec[0])
-        dir_vec[1] = round(dir_vec[1])
-        last_point[0] += sep * dir_vec[0]
-        last_point[1] += sep * dir_vec[1]
-        new_path = path.copy()
-        new_path[-1] = tuple(last_point)
+        new_path = extend_path_ends(path, sep)
         p = gf.path.extrude(
             gf.path.Path(new_path), width=width + 2 * sep, layer=layer_nsd
         )
 
-        sep += gr_drc["np_min_enclose_nw"]
-        last_point = list(path[-1])
-        last_point[0] += sep * dir_vec[0]
-        last_point[1] += sep * dir_vec[1]
-        new_path = path.copy()
-        new_path[-1] = tuple(last_point)
+        sep = gr_drc["nwell_min_enclose_ntap"]
+        new_path = extend_path_ends(path, sep)
         nwl = gf.path.extrude(
             gf.path.Path(new_path), width=width + 2 * sep, layer=layer_nwell
         )
@@ -1060,15 +1050,41 @@ def guard_ring(
         rows=nrows,
     )
 
-    conts = gf.path.along_path(
-        gf.path.Path(cont_path if bbox is not None else path),
-        cont_tap,
-        gr_drc["cont_min_spacing"] + gr_drc["cont_min_size"],
-        0.0,
-    )
+    centered_cont_tap = Component()
+    centered_cont_ref = centered_cont_tap.add_ref(cont_tap)
+    centered_cont_ref.x = 0
+    centered_cont_ref.y = 0
+    cont_tap = centered_cont_tap
+
+    contact_path = path[:4]+[path[0]] if bbox is not None else path
+    conts = Component()
+    cont_pitch = gr_drc["cont_min_spacing"] + gr_drc["cont_min_size"]
+    end_padding = gr_drc["cont_min_size"] / 2 + gr_drc["cont_min_enclose_active"]
+    corner_padding = gr_drc["cont_min_size"] / 2 + gr_drc["cont_min_spacing"] / np.sqrt(2)
+
+    for i, start_point in enumerate(contact_path[:-1]):
+        start_point = np.array(start_point)
+        end_point = np.array(contact_path[i+1])
+        segment = end_point-start_point
+        segment_length = np.linalg.norm(segment)
+        direction = segment/segment_length
+        start_padding = corner_padding if bbox is not None or i > 0 else end_padding
+        stop_padding = corner_padding if bbox is not None or i < len(contact_path)-2 else end_padding
+        available_length = segment_length-start_padding-stop_padding
+        contact_count = int(np.floor(available_length/cont_pitch))+1
+        first_contact = start_padding + (available_length-(contact_count-1)*cont_pitch)/2
+        angle = np.rad2deg(np.arctan2(direction[1], direction[0]))
+
+        for j in range(contact_count):
+            contact_ref = conts.add_ref(cont_tap)
+            contact_ref.rotate(angle)
+            position = start_point+direction*(first_contact+j*cont_pitch)
+            position = np.round(position/tech.TECH.grid)*tech.TECH.grid
+            contact_ref.move(position)
+
+    conts.flatten()
     cont_ref = c.add_ref(conts)
-    cont_ref.x = main.x
-    cont_ref.y = main.y
+    cont_ref.flatten()
     c.info["model"] = f"{guardRingType}-guard-ring"
     c.info["width"] = width
     c.info["rows"] = nrows
