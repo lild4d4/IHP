@@ -5,11 +5,8 @@ import warnings
 import kwasm.embed
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from gdsfactory.get_factories import get_cells
 
 from ihp import PDK
-from ihp import cells2 as cells2_module
-from ihp import cells_fixed as cells_fixed_module
 from ihp.config import PATH
 from ihp.tech import LAYER_STACK, LAYER_VIEWS
 
@@ -19,8 +16,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 PDK.activate()
 
 filepath_cells = PATH.repo / "docs" / "cells.md"
-filepath_fixed = PATH.repo / "docs" / "cells_fixed.md"
-filepath_cells2 = PATH.repo / "docs" / "cells2_reference.md"
 filepath_3d = PATH.repo / "docs" / "_static" / "3d"
 filepath_3d.mkdir(parents=True, exist_ok=True)
 
@@ -127,7 +122,10 @@ def write_cell_entry(f, name, cell_dict, module_path="ihp.cells", import_alias="
 """
         )
 
-        # Write GDS and save PNG for Static/Dynamic tabs
+        # Generate 3D GLB before writing tabs
+        glb_file = make_3d_glb(name, cell_dict)
+
+        # Write GDS and save PNG for Static/Dynamic/3D tabs
         try:
             c = cell_dict[name]()
             c.write_gds(gds_dir / f"{name}.gds")
@@ -143,18 +141,16 @@ def write_cell_entry(f, name, cell_dict, module_path="ihp.cells", import_alias="
                 f' loading="lazy" width="100%" height="400"'
                 f' style="border:none"></iframe>\n\n'
             )
+            if glb_file:
+                f.write('=== "3D"\n\n')
+                f.write(
+                    f'    <iframe class="viewer-3d"'
+                    f' src="_static/3d/viewer.html?file={glb_file}"'
+                    f' width="100%" height="500px" frameborder="0"'
+                    f' loading="lazy"></iframe>\n\n'
+                )
         except Exception as e:
             print(f"  [kwasm skip] {name}: {e}")
-
-        # Generate 3D GLB and embed via shared viewer
-        glb_file = make_3d_glb(name, cell_dict)
-        if glb_file:
-            f.write(
-                f"""
-<iframe class="viewer-3d" src="_static/3d/viewer.html?file={glb_file}" width="100%" height="500px" frameborder="0" loading="lazy"></iframe>
-
-"""
-            )
 
         f.write(
             f"""```python
@@ -194,52 +190,3 @@ Here are the parametric components available in the PDK.
             continue
         print(name)
         write_cell_entry(f, name, cells, "ihp.cells", "cells")
-
-
-# Write deprecated fixed cells page
-cells_fixed = get_cells(cells_fixed_module)
-
-with open(filepath_fixed, "w+") as f:
-    f.write(
-        """
-
-Fixed Cells (Deprecated)
-=============================
-
-.. deprecated:: v0.2.0
-   The fixed-GDS cells below are deprecated. Use the equivalent pure-Python
-   parametric cells from the :doc:`cells` page instead.
-"""
-    )
-
-    for name in sorted(cells_fixed.keys()):
-        if name in skip or name.startswith("_"):
-            continue
-        print(name)
-        write_cell_entry(f, name, cells_fixed, "ihp.cells_fixed", "cells_fixed")
-
-
-# Write cells2 PyCell reference page
-cells2 = get_cells(cells2_module)
-
-with open(filepath_cells2, "w+") as f:
-    f.write(
-        """
-
-PyCell Reference (cells2)
-=============================
-
-These are reference implementations of the IHP SG13G2 PyCells, ported from the
-original CNI (Cadence PyCell) library to GDSFactory. The ``ihp_pycell`` subfolder
-contains the original CNI-based source code.
-
-These cells serve as a validation reference for the primary parametric cells in
-:doc:`cells`. They can also be used directly if needed.
-"""
-    )
-
-    for name in sorted(cells2.keys()):
-        if name in skip or name.startswith("_"):
-            continue
-        print(name)
-        write_cell_entry(f, name, cells2, "ihp.cells2", "cells2")
