@@ -53,7 +53,7 @@ def _add_rect(
     c.add_polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)], layer=layer)
 
 
-def _place_contacts(
+def place_contacts(
     c: Component,
     layer_cont: LayerSpec,
     xl: float,
@@ -151,6 +151,9 @@ def _mos_core(
     layer_substrate: LayerSpec = "Substratedrawing",
     layer_metal1_pin: LayerSpec = "Metal1pin",
     layer_gatpoly_pin: LayerSpec = "GatPolypin",
+    contact_internal_sd: bool = True,
+    internal_sd_width: float | None = None,
+    aggregate_gate_port: bool = False,
 ) -> Component:
     """Core MOS transistor layout matching IHP PyCell geometry.
 
@@ -194,6 +197,12 @@ def _mos_core(
     # Narrow-width gate-contact spacing adjustment
     if w < contActMin - epsilon:
         gatpoly_cont_dist = smallw_gatpoly_cont_dist
+
+    # Gate-to-gate width of shared S/D regions. By default, make an internal
+    # S/D as wide as either contacted S/D region at the ends of the device.
+    if internal_sd_width is None:
+        internal_sd_width = cont_Activ_overRec + cont_size + gatpoly_cont_dist
+    internal_sd_width = _grid_fix(internal_sd_width)
 
     xdiff_beg = 0.0
     ydiff_beg = 0.0
@@ -248,7 +257,7 @@ def _mos_core(
     )
 
     # Source contacts
-    _place_contacts(
+    place_contacts(
         c,
         layer_cont,
         xcont_beg,
@@ -280,6 +289,15 @@ def _mos_core(
     src_y = (yMet1 + yMet2) / 2
     port_height = yMet2 - yMet1
 
+    c.add_port(
+        name="SD0",
+        center=(src_x, src_y),
+        width=_even_dbu(port_height),
+        orientation=180,
+        layer=layer_metal1_pin,
+        port_type="electrical",
+    )
+
     # Source diffusion (Activ)
     _add_rect(
         c,
@@ -294,6 +312,8 @@ def _mos_core(
     # Gate fingers loop
     # -----------------------------------------------------------------------
     gate_x = gate_y = drain_x = drain_y = gate_height = 0.0
+    gate_orientation = 270
+    first_gate_x = last_gate_x = 0.0
     for i in range(1, ng + 1):
         # Poly gate
         xpoly_beg = xcont_end + gatpoly_cont_dist
@@ -321,7 +341,33 @@ def _mos_core(
         )
 
         # Gate pin (first finger only, matching onep(i) check)
+
+        # Gate pin marker and port for each finger
+        gate_x_i = (xpoly_beg + xpoly_end) / 2
+        gate_y_i = (ypoly_beg + ypoly_end) / 2 + diffoffset
+        gate_height_i = ypoly_end - ypoly_beg
+
+        _add_rect(
+            c,
+            pin_layer_poly,
+            xpoly_beg,
+            ypoly_beg + diffoffset,
+            xpoly_end,
+            ypoly_end + diffoffset,
+        )
+
+        c.add_port(
+            name=f"G{i}",
+            center=(gate_x_i, gate_y_i),
+            width=_even_dbu(gate_height_i),
+            orientation=270,
+            layer=layer_gatpoly_pin,
+            port_type="electrical",
+        )
+
+
         if i == 1:
+            first_gate_x = xpoly_beg
             _add_rect(
                 c,
                 pin_layer_poly,
@@ -333,39 +379,49 @@ def _mos_core(
             gate_x = (xpoly_beg + xpoly_end) / 2
             gate_y = (ypoly_beg + ypoly_end) / 2 + diffoffset
             gate_height = ypoly_end - ypoly_beg
+        last_gate_x = xpoly_end
 
-        # Drain/next-source contact column
+        # Drain/next-source contact column. For an uncontacted shared S/D,
+        # xcont_end is only a placement cursor: the next gate starts exactly
+        # internal_sd_width after the current gate ends.
+        is_internal_shared_sd = not contact_internal_sd and i < ng
         xcont_beg = xpoly_end + gatpoly_cont_dist
         ycont_beg = ydiff_beg + cont_Activ_overRec
         ycont_cnt = ycont_beg + diffoffset + diff_cont_offset
-        xcont_end = xcont_beg + cont_size
+        if is_internal_shared_sd:
+            xcont_end = xpoly_end + internal_sd_width - gatpoly_cont_dist
+        else:
+            xcont_end = xcont_beg + cont_size
 
-        # Metal1 for this S/D column
-        _add_rect(
-            c,
-            layer_metal1,
-            xcont_beg - cont_metall_over,
-            yMet1,
-            xcont_end + cont_metall_over,
-            yMet2,
-        )
+        contact_sd = contact_internal_sd or i == ng
+        if contact_sd:
+            # Metal1 and contacts are omitted on shared series diffusions.
+            _add_rect(
+                c,
+                layer_metal1,
+                xcont_beg - cont_metall_over,
+                yMet1,
+                xcont_end + cont_metall_over,
+                yMet2,
+            )
+            place_contacts(
+                c,
+                layer_cont,
+                xcont_beg,
+                ydiff_beg,
+                xcont_end,
+                ydiff_end + diffoffset * 2,
+                0,
+                cont_Activ_overRec,
+                cont_size,
+                cont_dist,
+            )
 
-        # Contacts for this S/D column
-        _place_contacts(
-            c,
-            layer_cont,
-            xcont_beg,
-            ydiff_beg,
-            xcont_end,
-            ydiff_end + diffoffset * 2,
-            0,
-            cont_Activ_overRec,
-            cont_size,
-            cont_dist,
-        )
+            sd_x_i = (
+                xcont_beg - cont_metall_over + xcont_end + cont_metall_over
+            ) / 2
+            sd_y_i = src_y
 
-        # Drain pin (first finger only)
-        if i == 1:
             _add_rect(
                 c,
                 pin_layer_m1,
@@ -374,18 +430,40 @@ def _mos_core(
                 xcont_end + cont_metall_over,
                 yMet2,
             )
-            drain_x = (xcont_beg - cont_metall_over + xcont_end + cont_metall_over) / 2
-            drain_y = src_y
+            c.add_port(
+                name=f"SD{i}",
+                center=(sd_x_i, sd_y_i),
+                width=_even_dbu(port_height),
+                orientation=0,
+                layer=layer_metal1_pin,
+                port_type="electrical",
+            )
+
+            if (contact_internal_sd and i == 1) or (
+                not contact_internal_sd and i == ng
+            ):
+                drain_x = sd_x_i
+                drain_y = sd_y_i
 
         # Drain/source diffusion (Activ)
-        _add_rect(
-            c,
-            layer_activ,
-            xcont_beg - cont_Activ_overRec,
-            ycont_beg - cont_Activ_overRec,
-            xcont_end + cont_Activ_overRec,
-            ycont_beg + cont_size + cont_Activ_overRec,
-        )
+        if not is_internal_shared_sd:
+            _add_rect(
+                c,
+                layer_activ,
+                xcont_beg - cont_Activ_overRec,
+                ycont_beg - cont_Activ_overRec,
+                xcont_end + cont_Activ_overRec,
+                ycont_beg + cont_size + cont_Activ_overRec,
+            )
+
+    # nmos_series exposes G as the aggregate of G1...Gn at their upper edge.
+    # The caller can place its existing top gate strap directly on this port;
+    # no additional gate-connection geometry is created here.
+    if aggregate_gate_port:
+        gate_x = (first_gate_x + last_gate_x) / 2
+        gate_y = ypoly_end + diffoffset
+        gate_height = last_gate_x - first_gate_x
+        gate_orientation = 90
 
     # -----------------------------------------------------------------------
     # Spanning diffusion rectangle
@@ -497,7 +575,7 @@ def _mos_core(
         name="G",
         center=(gate_x, gate_y),
         width=_even_dbu(gate_height),
-        orientation=270,
+        orientation=gate_orientation,
         layer=layer_gatpoly_pin,
         port_type="electrical",
     )
@@ -581,6 +659,61 @@ def nmos(
 
     c = _mos_core(width, length, nf, is_pmos=False, is_hv=False)
     return c
+
+
+@gf.cell(tags=["IHP", "mos", "lv", "series"])
+def nmos_series(
+    width: float = 0.5,
+    length: float = 0.65,
+    stages: int = 4,
+    internal_sd_width: float | None = None,
+    model: str = "sg13_lv_nmos",
+) -> Component:
+    """Create a series NMOS diffusion chain contacted only at its ends.
+
+    ``width`` is the width of each stage. Gate ports remain independent so the
+    caller can connect them as required.
+
+    Args:
+        width: Width of each transistor stage in micrometers.
+        length: Gate length in micrometers.
+        stages: Number of series transistor stages.
+        internal_sd_width: Edge-to-edge spacing between consecutive gates in
+            micrometers. This is the width of each shared S/D diffusion. If
+            ``None``, it matches the width of the contacted S/D regions at the
+            two ends.
+        model: Device model name.
+    """
+    if width < TECH.nmos_min_width or width > TECH.nmos_max_width:
+        raise ValueError(
+            f"nmos_series width={width} out of range "
+            f"[{TECH.nmos_min_width}, {TECH.nmos_max_width}]"
+        )
+    if length < TECH.nmos_min_length or length > TECH.nmos_max_length:
+        raise ValueError(
+            f"nmos_series length={length} out of range "
+            f"[{TECH.nmos_min_length}, {TECH.nmos_max_length}]"
+        )
+    if stages < 1 or stages > TECH.nmos_max_nf:
+        raise ValueError(
+            f"nmos_series stages={stages} out of range [1, {TECH.nmos_max_nf}]"
+        )
+    if internal_sd_width is not None and _grid_fix(internal_sd_width) <= 0:
+        raise ValueError(
+            f"nmos_series internal_sd_width must be at least one technology grid "
+            f"step ({TECH.grid})"
+        )
+
+    return _mos_core(
+        width * stages,
+        length,
+        stages,
+        is_pmos=False,
+        is_hv=False,
+        contact_internal_sd=False,
+        internal_sd_width=internal_sd_width,
+        aggregate_gate_port=True,
+    )
 
 
 def pmos_schematic(
