@@ -926,9 +926,9 @@ class TechIHP(BaseModel):
     nmos_max_nf: int = 100
 
     # PMOS (LV)
-    pmos_max_width: float = 10.0
+    pmos_max_width: float = 10000.0
     pmos_max_length: float = 10.0
-    pmos_max_nf: int = 100
+    pmos_max_nf: int = 1000
 
     # NMOS HV
     nmos_hv_min_width: float = 0.30
