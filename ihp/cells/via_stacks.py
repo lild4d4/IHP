@@ -12,23 +12,23 @@ VIA_RULES = {
         "enclosure": 0.06,
     },
     "Via1": {
-        "size": 0.26,
-        "spacing": 0.36,
+        "size": 0.19,
+        "spacing": 0.48,
         "enclosure": 0.06,
     },
     "Via2": {
-        "size": 0.26,
-        "spacing": 0.36,
+        "size": 0.19,
+        "spacing": 0.48,
         "enclosure": 0.06,
     },
     "Via3": {
-        "size": 0.26,
-        "spacing": 0.36,
+        "size": 0.19,
+        "spacing": 0.48,
         "enclosure": 0.06,
     },
     "Via4": {
-        "size": 0.26,
-        "spacing": 0.36,
+        "size": 0.19,
+        "spacing": 0.48,
         "enclosure": 0.06,
     },
     "Vmim": {
@@ -379,15 +379,15 @@ def via_stack(
         _port_layers.append((top_layer, top_port_label))
     for layer_name, port_label in _port_layers:
         pin_layer = pin_layer_map[layer_name]
-        for direction, (center, orientation, port_width) in _port_specs.items():
-            c.add_port(
-                name=f"{port_label}_{direction}",
-                center=center,
-                width=port_width,
-                orientation=orientation,
-                layer=pin_layer,
-                port_type="electrical",
-            )
+        #for direction, (center, orientation, port_width) in _port_specs.items():
+        #    c.add_port(
+        #        name=f"{port_label}_{direction}",
+        #        center=center,
+        #        width=port_width,
+        #        orientation=orientation,
+        #        layer=pin_layer,
+        #        port_type="electrical",
+        #    )
 
     # Add metadata
     c.info["bottom_layer"] = bottom_layer
