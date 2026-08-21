@@ -1104,7 +1104,7 @@ def guard_ring(
     conts = Component()
     cont_pitch = gr_drc["cont_min_spacing"] + gr_drc["cont_min_size"]
     end_padding = gr_drc["cont_min_size"] / 2 + gr_drc["cont_min_enclose_active"]
-    corner_padding = gr_drc["cont_min_size"] / 2 + gr_drc["cont_min_spacing"] / np.sqrt(2)
+    corner_padding = gr_drc["cont_min_size"] / np.sqrt(2) + gr_drc["cont_min_spacing"] / np.sqrt(2)
 
     for i, start_point in enumerate(contact_path[:-1]):
         start_point = np.array(start_point)
