@@ -1104,15 +1104,23 @@ def guard_ring(
         rows=nrows,
     )
 
-    conts = gf.path.along_path(
-        gf.path.Path(cont_path if bbox is not None else path),
-        cont_tap,
-        gr_drc["cont_min_spacing"] + gr_drc["cont_min_size"],
-        0.0,
-    )
-    cont_ref = c.add_ref(conts)
-    cont_ref.x = main.x
-    cont_ref.y = main.y
+    #conts = gf.path.along_path(
+    #    gf.path.Path(cont_path if bbox is not None else path),
+    #    cont_tap,
+    #    gr_drc["cont_min_spacing"] + gr_drc["cont_min_size"],
+    #    0.0,
+    #)
+
+    for p0, p1 in zip(cont_path[:-1], cont_path[1:]):
+
+        conts = gf.path.along_path(
+            gf.path.Path([tuple(p0), tuple(p1)]),
+            cont_tap,
+            gr_drc["cont_min_spacing"] + gr_drc["cont_min_size"],
+            (gr_drc["cont_min_spacing"] + gr_drc["cont_min_size"])/np.sqrt(2),
+        )
+
+        cont_ref = c.add_ref(conts)
     c.info["model"] = f"{guardRingType}-guard-ring"
     c.info["width"] = width
     c.info["rows"] = nrows
