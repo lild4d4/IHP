@@ -732,6 +732,61 @@ def nmos_series(
     )
 
 
+@gf.cell(tags=["IHP", "mos", "hv", "series"])
+def nmos_hv_series(
+    width: float = 0.5,
+    length: float = 0.65,
+    stages: int = 4,
+    internal_sd_width: float | None = None,
+    model: str = "sg13_hv_nmos",
+) -> Component:
+    """Create a series NMOS diffusion chain contacted only at its ends.
+
+    ``width`` is the width of each stage. Gate ports remain independent so the
+    caller can connect them as required.
+
+    Args:
+        width: Width of each transistor stage in micrometers.
+        length: Gate length in micrometers.
+        stages: Number of series transistor stages.
+        internal_sd_width: Edge-to-edge spacing between consecutive gates in
+            micrometers. This is the width of each shared S/D diffusion. If
+            ``None``, it matches the width of the contacted S/D regions at the
+            two ends.
+        model: Device model name.
+    """
+    if width < TECH.nmos_min_width or width > TECH.nmos_max_width:
+        raise ValueError(
+            f"nmos_series width={width} out of range "
+            f"[{TECH.nmos_min_width}, {TECH.nmos_max_width}]"
+        )
+    if length < TECH.nmos_min_length or length > TECH.nmos_max_length:
+        raise ValueError(
+            f"nmos_series length={length} out of range "
+            f"[{TECH.nmos_min_length}, {TECH.nmos_max_length}]"
+        )
+    if stages < 1 or stages > TECH.nmos_max_nf:
+        raise ValueError(
+            f"nmos_series stages={stages} out of range [1, {TECH.nmos_max_nf}]"
+        )
+    if internal_sd_width is not None and _grid_fix(internal_sd_width) <= 0:
+        raise ValueError(
+            f"nmos_series internal_sd_width must be at least one technology grid "
+            f"step ({TECH.grid})"
+        )
+
+    return _mos_core(
+        width * stages,
+        length,
+        stages,
+        is_pmos=False,
+        is_hv=True,
+        contact_internal_sd=False,
+        internal_sd_width=internal_sd_width,
+        aggregate_gate_port=True,
+    )
+
+
 def pmos_schematic(
     width: float = 0.15,
     length: float = 0.13,
